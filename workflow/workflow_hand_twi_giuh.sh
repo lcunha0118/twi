@@ -160,7 +160,7 @@ for val in  ${HUC[@]}; do
 		echo "Generating histogram"						
 		conda activate $python_env
 		#generate TWI per basin
-		#python ~/git_repositories/twi/workflow/generate_twi_per_basin.py ${hucid} ${hydrofabrics_directory}catchments_wgs84.geojson ${file_name}twi_cr.tif ${file_name}slp_cr.tif $out_dir_twi --output 1 --buffer 0.001 --nodata -999
+		python ~/git_repositories/twi/workflow/generate_twi_per_basin.py ${hucid} ${hydrofabrics_directory}catchments_wgs84.geojson ${file_name}twi_cr.tif ${file_name}slp_cr.tif $out_dir_twi --output 1 --buffer 0.001 --nodata -999
 	
 
 	fi
