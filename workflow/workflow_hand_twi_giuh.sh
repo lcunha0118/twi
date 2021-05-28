@@ -20,7 +20,7 @@
 # 	Run source workflow_hand_twi_giuh.sh 
 
 
-source ./workflow_hand_twi_giuh_test.env
+source ./workflow_hand_twi_giuh.env
 
 mkdir ${dem_dir}
 mkdir ${out_dir_taudem}
