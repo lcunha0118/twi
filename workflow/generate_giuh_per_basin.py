@@ -13,12 +13,14 @@ positional arguments:
 
 optional arguments:
   -h, --help            show this help message and exit
-  --output flag
+  --output flag         0-Only generates the param file, 1- generates the cfe config file
   --buffer distance     Buffer geometry by this distance before calculation
   --nodata value        Use this nodata value instead of value from raster
   --preload             Preload entire raster into memory instead of a read
                         per vector feature  
 """
+
+
 from osgeo import gdal, ogr
 from osgeo.gdalconst import *
 import numpy as np
@@ -48,7 +50,14 @@ def bbox_to_pixel_offsets(gt, bbox):
     ysize = y2 - y1
     return (x1, y1, xsize, ysize)
 
-
+# namest='020302'
+# catchments='/home/west/Projects/hydrofabrics/20210511/catchments_wgs84.geojson'
+# time_to_stream_raster='/home/west/Projects/IUH_TWI/HAND_10m//020302/020302dsave1_cr.tif'
+# outputfolder_giuh='/home/west/Projects/hydrofabrics/20210511//GIUH_10m_1/'
+# nodata_value = -999
+# buffer_distance = 0.001
+# output_flag = 1
+# global_src_extent = 0
 
 def generate_giuh_per_basin(namestr,catchments, time_to_stream_raster, outputfolder_giuh,
                     output_flag=1,
@@ -56,6 +65,12 @@ def generate_giuh_per_basin(namestr,catchments, time_to_stream_raster, outputfol
                     global_src_extent=False,
                     buffer_distance=0.001):
     
+    outputfolder_giuh_param_file=outputfolder_giuh+"/width_function/"
+    
+    if not os.path.exists(outputfolder_giuh_param_file): os.mkdir(outputfolder_giuh_param_file)
+    if(output_flag==1): 
+        outputfolder_giuh_config_file=outputfolder_giuh+"/CFE_config_file/"
+        if not os.path.exists(outputfolder_giuh_config_file): os.mkdir(outputfolder_giuh_config_file)
     rds = gdal.Open(time_to_stream_raster, GA_ReadOnly)
     assert rds, "Could not open raster" +time_to_stream_raster
     rb = rds.GetRasterBand(1)
@@ -168,7 +183,7 @@ def generate_giuh_per_basin(namestr,catchments, time_to_stream_raster, outputfol
             rvds.SetGeoTransform(new_gt)
             gdal.RasterizeLayer(rvds, [1], mem_layer, burn_values=[1])
             rv_array = rvds.ReadAsArray()
-    
+
             # Mask the source data array with our current feature
             # we take the logical_not to flip 0<->1 to get the correct mask effect
             # we also mask out nodata values explictly
@@ -179,23 +194,26 @@ def generate_giuh_per_basin(namestr,catchments, time_to_stream_raster, outputfol
                     np.logical_not(rv_array)
                 )
             )
+
             #Create a 1-d array - include nan for points outside of the polygone
             maskedArray=np.ma.filled(masked.astype(float), np.nan).flatten()
-        
+            all_values=len(maskedArray)
             
             #remove all values outside of the polygone which are marked as nan
             maskedArray2=maskedArray[(maskedArray!=nodata_value) & (~np.isnan(maskedArray)) & (maskedArray>=0)] # Values covered by the polygon
             # Due to incompatibilities with hydrofabrics
             
-            sorted_array = np.sort(maskedArray2)            
-            if(len(sorted_array)>20):    
+            sorted_array = np.sort(maskedArray2)    
+            filtered_values=len(sorted_array)
+            Check=100*filtered_values/all_values
+            if(Check>5):    
 
                 Per5=np.percentile(sorted_array,5)
                 Per95=np.percentile(sorted_array,95)
                 if(len(np.unique(sorted_array))>10): sorted_array=sorted_array[(sorted_array>=Per5) & (sorted_array<=Per95)]
                 sorted_array=(sorted_array-min(sorted_array))/60.
-                AllData = pd.DataFrame(columns=['TravelTimeHour'], data=sorted_array)
                 
+                AllData = pd.DataFrame(columns=['TravelTimeHour'], data=sorted_array)                
                 max_Nclasses=min(15,max(AllData['TravelTimeHour']))
                 max_Nclasses=max(3,max_Nclasses)
                 classes=np.arange(0,max_Nclasses, 1)
@@ -205,29 +223,35 @@ def generate_giuh_per_basin(namestr,catchments, time_to_stream_raster, outputfol
                 CDF=pd.DataFrame({'Nelem':hist[0].T, 'TravelTimeHour':hist[1][1:].T}).sort_values(by=['TravelTimeHour'], ascending=True)
                 CDF['Freq']=CDF['Nelem']/sum(CDF['Nelem'])
                 CDF['AccumFreq']=CDF['Freq'].cumsum()            
-                    
+                DatFile=os.path.join(outputfolder_giuh_param_file,"cat-"+str(cat)+"_giuh.csv")
+                CDF.to_csv(DatFile)             
                 if(output_flag==1):
-                    DatFile=os.path.join(outputfolder_giuh,"cat-"+str(cat)+"_bmi_config_cfe_pass.txt")
+                    DatFile=os.path.join(outputfolder_giuh_config_file,"cat-"+str(cat)+"_bmi_config_cfe_pass.txt")
                     f= open(DatFile, "w")
                     string="forcing_file=BMI\nsoil_params.depth=2.0\nsoil_params.b=4.05\nsoil_params.mult=1000.0\nsoil_params.satdk=0.00000338\nsoil_params.satpsi=0.355\nsoil_params.slop=1.0\nsoil_params.smcmax=0.439\nsoil_params.wltsmc=0.066\nmax_gw_storage=16.0\nCgw=0.01\nexpon=6.0\ngw_storage=50%\nalpha_fc=0.33\nsoil_storage=66.7%\nK_nash=0.03\nK_lf=0.01\nnash_storage=0.0,0.0\n"
                     f.write("%s" %(string))
-                    giuh="giuh_ordinates="+"{0:.2f}".format((round(CDF['Freq'].iloc[0],2)))
+                    giuh="giuh_ordinates="+"{0:.2f}".format((round(CDF['Freq'].iloc[0],4)))
                     for icdf in range(1,len(CDF)):
-                        giuh=giuh+","+"{0:.2f}".format((round(CDF['Freq'].iloc[icdf],2)))
+                        giuh=giuh+","+"{0:.2f}".format((round(CDF['Freq'].iloc[icdf],4)))
                     giuh =giuh+"\n"  
                     f.write("%s" %(giuh))
                     f.close()
-            else:
-                 if(output_flag==1):                   
-                    DatFile=os.path.join(outputfolder_giuh,"cat-"+str(cat)+"_bmi_config_cfe_pass.txt")
-                    f= open(DatFile, "w")
-                    string="forcing_file=BMI\nsoil_params.depth=2.0\nsoil_params.b=4.05\nsoil_params.mult=1000.0\nsoil_params.satdk=0.00000338\nsoil_params.satpsi=0.355\nsoil_params.slop=1.0\nsoil_params.smcmax=0.439\nsoil_params.wltsmc=0.066\nmax_gw_storage=16.0\nCgw=0.01\nexpon=6.0\ngw_storage=50%\nalpha_fc=0.33\nsoil_storage=66.7%\nK_nash=0.03\nK_lf=0.01\nnash_storage=0.0,0.0\n"
-                    f.write("%s" %(string))
-                    giuh="giuh_ordinates=1.0,0.0\n"
-                    f.write("%s" %(giuh))
-                    f.close()                   
+            # 07/30/2021 Commented because it can overwrite a good file when the selected polygon is in the raster area, but not in the HUC 
+            # 
+            # else:
+            #     print (LU)
+            #     #DatFile=os.path.join(outputfolder_giuh_param_file,"cat-"+str(cat)+"_giuh.csv")
+            #     #CDF.to_csv(DatFile)
+            #     if(output_flag==1):                   
+            #         DatFile=os.path.join(outputfolder_giuh_config_file,"cat-"+str(cat)+"_bmi_config_cfe_pass.txt")
+            #         f= open(DatFile, "w")
+            #         string="forcing_file=BMI\nsoil_params.depth=2.0\nsoil_params.b=4.05\nsoil_params.mult=1000.0\nsoil_params.satdk=0.00000338\nsoil_params.satpsi=0.355\nsoil_params.slop=1.0\nsoil_params.smcmax=0.439\nsoil_params.wltsmc=0.066\nmax_gw_storage=16.0\nCgw=0.01\nexpon=6.0\ngw_storage=50%\nalpha_fc=0.33\nsoil_storage=66.7%\nK_nash=0.03\nK_lf=0.01\nnash_storage=0.0,0.0\n"
+            #         f.write("%s" %(string))
+            #         giuh="giuh_ordinates=1.0,0.0\n"
+            #         f.write("%s" %(giuh))
+            #         f.close()                   
 
-
+        src_array = None
         rvds = None
         mem_ds = None
         feat = vlyr.GetNextFeature()
@@ -251,6 +275,7 @@ if __name__ == "__main__":
                         help="Time to stream (minutes) raster")
     parser.add_argument("outputfolder_giuh",
                         help="Output folder")
+
     parser.add_argument("--buffer", type=float, default=0, metavar="distance",
                         help="Buffer geometry by this distance before calculation")
     parser.add_argument("--nodata", type=float, default=None, metavar="value",
@@ -259,6 +284,7 @@ if __name__ == "__main__":
                         help="Write CFE file containing GIUH parameters")
     parser.add_argument("--preload", action="store_true",
                         help="Preload entire raster into memory instead of a read per vector feature")
+
 
     args = parser.parse_args()
 
@@ -270,4 +296,15 @@ if __name__ == "__main__":
                     )
 
 
-    
+# Test
+# namest='020302'
+# catchments='/home/west/Projects/hydrofabrics/20210511/catchments_wgs84.geojson'
+# time_to_stream_raster='/home/west/Projects/IUH_TWI/HAND_10m//020302/020302dsave1_cr.tif'
+# outputfolder_giuh='/home/west/Projects/hydrofabrics/20210511//GIUH_10m_1/'
+# nodata_value = -999
+# buffer_distance = 0.001
+# output_flag = 1
+# global_src_extent = 0
+
+ # generate_giuh_per_basin('020302','/home/west/Projects/hydrofabrics/20210511/catchments_wgs84.geojson', '/home/west/Projects/IUH_TWI/HAND_10m//020302/020302dsave1_cr.tif', '/home/west/Projects/hydrofabrics/20210511//GIUH_10m_1/',
+ #                     nodata_value = -999,buffer_distance = 0.001,output_flag = 1)    

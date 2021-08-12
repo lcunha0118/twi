@@ -10,6 +10,7 @@ positional arguments:
   catchments            hydrofabrics catchment
   twi_raster            Twi Raster file - generated with workflow_hand_twi_giuh.sh
   slope_raster          Slope Raster file - generated with workflow_hand_twi_giuh.sh
+  dist_to_outlet_raster          Distance to Outlet Raster file - generated with workflow_hand_twi_giuh.sh
   outputfolder_twi      Output folder
 
 optional arguments:
@@ -40,10 +41,9 @@ def bbox_to_pixel_offsets(gt, bbox):
     pixel_height = gt[5]
     x1 = int((bbox[0] - originX) / pixel_width)
     x2 = int((bbox[1] - originX) / pixel_width) 
-    #x2 = int((bbox[1] - originX) / pixel_width) + 1
     y1 = int((bbox[3] - originY) / pixel_height)
     y2 = int((bbox[2] - originY) / pixel_height) 
-    #y2 = int((bbox[2] - originY) / pixel_height) + 1
+
      
     xsize = x2 - x1
     ysize = y2 - y1
@@ -51,29 +51,42 @@ def bbox_to_pixel_offsets(gt, bbox):
 
 
 
-def generate_twi_per_basin(namestr,catchments, twi_raster,slope_raster, outputfolder_twi,
+def generate_twi_per_basin(namestr,catchments, twi_raster,slope_raster, dist_to_outlet_raster,outputfolder_twi,
                     output_flag=1,
                     nodata_value=None,
                     global_src_extent=False,
                     buffer_distance=0):
-    
+
+    outputfolder_twi_param_file=outputfolder_twi+"/TOPMODEL_param/"
+    if not os.path.exists(outputfolder_twi_param_file): os.mkdir(outputfolder_twi_param_file)
+    if(output_flag==1): 
+        outputfolder_twi_config_file=outputfolder_twi+"/TOPMODEL_cat_file/"
+        if not os.path.exists(outputfolder_twi_config_file): os.mkdir(outputfolder_twi_config_file)
+        
     rds = gdal.Open(twi_raster, GA_ReadOnly)
     assert rds, "Could not open twi raster"
-    rb = rds.GetRasterBand(1)
+    twi = rds.GetRasterBand(1) #previous rb
     rgt = rds.GetGeoTransform()
     
     rds2 = gdal.Open(slope_raster, GA_ReadOnly)
     assert rds2, "Could not open slope raster"
-    rb2 = rds2.GetRasterBand(1)
+    slope = rds2.GetRasterBand(1) #previous rb2
     rgt2 = rds2.GetGeoTransform()
+
+    rds3 = gdal.Open(dist_to_outlet_raster, GA_ReadOnly)
+    assert rds3, "Could not open distance to stream raster"
+    d2s = rds3.GetRasterBand(1)
+    rgt3 = rds3.GetGeoTransform()
     
     if nodata_value:
         # Override with user specified nodata
         nodata_value = float(nodata_value)
-        rb.SetNoDataValue(nodata_value)
+        twi.SetNoDataValue(nodata_value)
     else:
         # Use nodata from band
-        nodata_value = float(rb.GetNoDataValue())
+        nodata_value = float(twi.GetNoDataValue())
+    
+
     # Warn if nodata is NaN as this will not work with the mask (as NaN != NaN)
     assert nodata_value == nodata_value, "Cannot handle NaN nodata value"
 
@@ -93,7 +106,7 @@ def generate_twi_per_basin(namestr,catchments, twi_raster,slope_raster, outputfo
         vlyr_extent = [a + b for a, b in zip(vlyr_extent, expand_by)]
 
 
-    
+    print ("Test 1")   
     # create an in-memory numpy array of the source raster data
     # covering the whole extent of the vector layer
     if global_src_extent:
@@ -102,9 +115,9 @@ def generate_twi_per_basin(namestr,catchments, twi_raster,slope_raster, outputfo
         # advantage: reads raster data in one pass
         # disadvantage: large vector extents may have big memory requirements
         src_offset = bbox_to_pixel_offsets(rgt, vlyr_extent)
-        #print (str(src_offset))
-        src_array = rb.ReadAsArray(*src_offset)
-        src_array_slope = rb2.ReadAsArray(*src_offset)
+        src_array = twi.ReadAsArray(*src_offset)
+        src_array_slope = slope.ReadAsArray(*src_offset)
+        src_array_dist = d2s.ReadAsArray(*src_offset)
         # calculate new geotransform of the layer subset
         new_gt = (
             (rgt[0] + (src_offset[0] * rgt[1])),
@@ -119,7 +132,7 @@ def generate_twi_per_basin(namestr,catchments, twi_raster,slope_raster, outputfo
     driver = gdal.GetDriverByName('MEM')
 
     # Loop through vectors
-                
+      
     skippednulgeoms = False
     total = vlyr.GetFeatureCount(force = 0)
     vlyr.ResetReading()
@@ -164,9 +177,9 @@ def generate_twi_per_basin(namestr,catchments, twi_raster,slope_raster, outputfo
             # advantage: each feature uses the smallest raster chunk
             # disadvantage: lots of reads on the source raster
             src_offset = bbox_to_pixel_offsets(rgt, mem_feat.geometry().GetEnvelope())
-            #print (str(src_offset))
-            src_array = rb.ReadAsArray(*src_offset)
-            src_array_slope = rb2.ReadAsArray(*src_offset)
+            src_array = twi.ReadAsArray(*src_offset)
+            src_array_slope = slope.ReadAsArray(*src_offset)
+            src_array_dist = d2s.ReadAsArray(*src_offset)            
             # calculate new geotransform of the feature subset
             new_gt = (
                 (rgt[0] + (src_offset[0] * rgt[1])),
@@ -182,15 +195,17 @@ def generate_twi_per_basin(namestr,catchments, twi_raster,slope_raster, outputfo
         #print (src_array)
         # Create a temporary vector layer in memory
         if not src_array is None:
+            
+            # 1 - First calculate histogram TWI
             mem_ds = mem_drv.CreateDataSource('out')
             mem_layer = mem_ds.CreateLayer('mem_lyr', None, mem_type)
             mem_layer.CreateFeature(mem_feat)
     
-            # Rasterize it
+            # Rasterize river network 
             rvds = driver.Create('', src_offset[2], src_offset[3], 1, gdal.GDT_Byte)
             rvds.SetGeoTransform(new_gt)
             gdal.RasterizeLayer(rvds, [1], mem_layer, burn_values=[1])
-            rv_array = rvds.ReadAsArray()
+            rv_array = rvds.ReadAsArray()     
             
             # Define large TWI for slope = 0 
             src_array[src_array_slope==0.0]=50.
@@ -205,7 +220,8 @@ def generate_twi_per_basin(namestr,catchments, twi_raster,slope_raster, outputfo
                     np.logical_not(rv_array) # remove this since it was creating issues with 1
                 )
             )
-            
+            #N_elem_valid=(masked>0).sum()
+            #Porc_valid=100*N_elem_valid/N_elem_polygon
             #print (" Col " + str(len(src_array)) + " row " +str(len(src_array[0])) + " row " + str(len(src_array[0])))
             all_values1=len(src_array)*len(src_array[0])
             if(cat==Test): ("col " + str(len(masked))  + " row " + str(len(masked[0])))
@@ -224,9 +240,10 @@ def generate_twi_per_basin(namestr,catchments, twi_raster,slope_raster, outputfo
                 print (str(maskedArray2))
             sorted_array = np.sort(maskedArray2)
             filtered_values=len(sorted_array)
-            Check=100*filtered_values/all_values
-            #print ("Out loop " + str(cat) + " Check "+ str(Check))
-            if(Check>1):                            
+            Check=100*filtered_values/all_values # Porcentage of valid numbers in the polygone
+                            
+            if(Check>80): 
+                    
                 if(cat==Test): print ("In loop to generate info" + str(cat) + " Freq "+ str(100*filtered_values/all_values) + " all values "+ str(all_values) + " filtered_values " + str(filtered_values))
                 #print ("In loop to generate info" + str(cat) + " Freq "+ str(100*filtered_values/all_values) + " all values "+ str(all_values) + " filtered_values " + str(filtered_values))
                 LessThan50=sorted_array[sorted_array<50]
@@ -235,7 +252,6 @@ def generate_twi_per_basin(namestr,catchments, twi_raster,slope_raster, outputfo
                     sorted_array[sorted_array>MaxValue]=MaxValue
                 nclasses=min(len(np.unique(sorted_array)),30)
                 TWI = pd.DataFrame(columns=['TWI'], data=sorted_array)
-
                 hist=np.histogram(TWI['TWI'].values, bins=nclasses)
         
                 CDF=pd.DataFrame({'Nelem':hist[0].T, 'TWI':hist[1][1:].T}).sort_values(by=['TWI'], ascending=False)
@@ -244,11 +260,60 @@ def generate_twi_per_basin(namestr,catchments, twi_raster,slope_raster, outputfo
                 #Scatter plot of CDF
                 #CDF.to_csv(os.path.join(outputfolder_twi, "CDF_" + str(cat) + '.csv'), index=False)
                 #CDFplot = CDF.plot(kind='scatter',x='TWI',y='AccumFreq',color='blue').get_figure()
+                DatFile=os.path.join(outputfolder_twi_param_file,"cat-"+str(cat)+"_twi.csv")
+                CDF.to_csv(DatFile)     
+                
+                # 2 - Second calculate the width function
+    
+                # Mask the source data array with our current feature
+                # we take the logical_not to flip 0<->1 to get the correct mask effect
+                # we also mask out nodata values explictly
+                masked = np.ma.MaskedArray(
+                    src_array_dist,
+                    mask=np.logical_or(
+                        src_array == nodata_value,
+                        np.logical_not(rv_array) # remove this since it was creating issues with 1
+                    )
+                )
+                #N_elem_valid=(masked>0).sum()
+                #Porc_valid=100*N_elem_valid/N_elem_polygon
+                #print (" Col " + str(len(src_array)) + " row " +str(len(src_array[0])) + " row " + str(len(src_array[0])))
+                all_values1=len(src_array_dist)*len(src_array_dist[0])
+                maskedArray=np.ma.filled(masked.astype(float), np.nan).flatten()
+    
+                all_values=len(maskedArray)
+                maskedArray2=maskedArray[(maskedArray!=nodata_value) & (~np.isnan(maskedArray)) & (maskedArray>0)]
+    
+                sorted_array = np.sort(maskedArray2)                 
+
+                Per5=np.percentile(sorted_array,5)
+                Per95=np.percentile(sorted_array,95)
+                if(len(np.unique(sorted_array))>10): sorted_array=sorted_array[(sorted_array>=Per5) & (sorted_array<=Per95)]
+                sorted_array=(sorted_array-min(sorted_array))
+                
+                # These values are hardcoded now due to the problem of catchment boundary created by using 
+                # different DEMS to generate the hydrofabrics, and in this analysis
+                # also, the hydrofabric polygones are modify which can also create a problem
+                max_class=min(2000,max(sorted_array))
+                bins=np.arange(0,max_class,500)
+                
+                nclasses_width_function=len(bins)
+                dist_to_outlet = pd.DataFrame(columns=['dist_to_outlet'], data=sorted_array)
+                hist=np.histogram(dist_to_outlet['dist_to_outlet'].values, bins=bins)
+        
+                CDF_D2O=pd.DataFrame({'Nelem':hist[0].T, 'dist_to_outlet':hist[1][1:].T}).sort_values(by=['dist_to_outlet'], ascending=True)
+                CDF_D2O['Freq']=CDF_D2O['Nelem']/sum(CDF_D2O['Nelem'])
+                CDF_D2O['AccumFreq']=CDF_D2O['Freq'].cumsum()
+                #Scatter plot of CDF
+                #CDF.to_csv(os.path.join(outputfolder_twi, "CDF_" + str(cat) + '.csv'), index=False)
+                #CDFplot = CDF.plot(kind='scatter',x='TWI',y='AccumFreq',color='blue').get_figure()
+                DatFile=os.path.join(outputfolder_twi_param_file,"cat-"+str(cat)+"_d2o.csv")
+                CDF_D2O.to_csv(DatFile)                  
                 
                 if(output_flag==1):
-                    #DirCat=os.path.join(outputfolder_twi, str(cat))
-                    #if not os.path.exists(DirCat): os.mkdir(DirCat)
-                    DatFile=os.path.join(outputfolder_twi,"cat-"+str(cat)+".dat")
+                #DirCat=os.path.join(outputfolder_twi, str(cat))
+                #if not os.path.exists(DirCat): os.mkdir(DirCat)
+                    DatFile=os.path.join(outputfolder_twi_config_file,"cat-"+str(cat)+".dat")
                     f= open(DatFile, "w")
                     f.write("1  1  0\n")
                     f.write("%s" %("Extracted study basin: " + str(cat) +"\n"))
@@ -256,30 +321,38 @@ def generate_twi_per_basin(namestr,catchments, twi_raster,slope_raster, outputfo
                     for icdf in range(0,len(CDF)):
                         strdata="{0:.6f}".format((round(CDF['Freq'].iloc[icdf],6))) + " " + "{0:.6f}".format((round(CDF['TWI'].iloc[icdf],6))) +"\n"
                         f.write("%s" %(strdata))
-                    f.write("3\n")  
-                    f.write("0.0  500.  0.5  1000.  1.0  1500.\n") 
+                    f.write(str(nclasses_width_function)+"\n") 
+                    strdata="0.0 " + "{0:.6f}".format((round(CDF_D2O['dist_to_outlet'].iloc[0],6))) +" "
+                    for icdf in range(1,len(CDF_D2O)):
+                        strdata=strdata+"{0:.6f}".format((round(CDF_D2O['AccumFreq'].iloc[icdf],6))) + " " + "{0:.6f}".format((round(CDF_D2O['dist_to_outlet'].iloc[icdf],6))) +" "
+                    strdata=strdata+"\n"
+                    f.write("%s" %(strdata))
+                    #f.write("0.0  500.  0.5  1000.  1.0  1500.\n") 
                     f.write("$mapfile.dat\n") 
                     f.close()
                    
                 
-                Catdatadict={}
-                Catdatadict['Freq'] = CDF['Freq'].values.tolist()
-                Catdatadict['TWI'] = CDF['TWI'].values.tolist()
-                
-                # cat ID
-                CatIDdict[str(cat)] = Catdatadict
+                # Catdatadict={}
+                # Catdatadict['Freq'] = CDF['Freq'].values.tolist()
+                # Catdatadict['TWI'] = CDF['TWI'].values.tolist()
+                # Catdatadict['Freq_Width_Function'] = CDF_D2O['AccumFreq'].values.tolist()
+                # Catdatadict['Width_Function'] = CDF_D2O['dist_to_outlet'].values.tolist()                
+                # # cat ID
+                # CatIDdict[str(cat)] = Catdatadict
         
     
         rvds = None
         mem_ds = None
         feat = vlyr.GetNextFeature()
 
-    with open(os.path.join(outputfolder_twi,namestr+'TWI.json'), 'w') as outfile:
-            json.dump(CatIDdict, outfile)
+    # with open(os.path.join(outputfolder_twi,namestr+'TWI.json'), 'w') as outfile:
+    #         json.dump(CatIDdict, outfile)
             
 
     vds = None
     rds = None
+    rds2 = None
+    rds3 = None
     return CatIDdict
 
 
@@ -296,6 +369,10 @@ if __name__ == "__main__":
                         help="TWI Raster file")
     parser.add_argument("slope_raster",
                         help=" Slope file")
+    parser.add_argument("dist_to_outlet_raster",
+                        help=" distance to outlet")
+    
+    
     parser.add_argument("outputfolder_twi",
                         help="Output folder")
     parser.add_argument("--buffer", type=float, default=0, metavar="distance",
@@ -309,12 +386,27 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
 
-    generate_twi_per_basin(args.namest,args.catchments, args.twi_raster, args.slope_raster, args.outputfolder_twi,
+    generate_twi_per_basin(args.namest,args.catchments, args.twi_raster, args.slope_raster, args.dist_to_outlet_raster, args.outputfolder_twi,
                     nodata_value = args.nodata,
                     global_src_extent = args.preload,
                     buffer_distance = args.buffer,
                     output_flag = args.output,                    
                     )
 
+#Test
+namest='010802'
+catchments='/home/west/Projects/hydrofabrics/20210511/catchments_wgs84.geojson'
+twi_raster="/home/west/Projects/IUH_TWI/HAND_30m/"+namest+"/"+namest+"_30mtwi_cr.tif"
+slope_raster="/home/west/Projects/IUH_TWI/HAND_30m/"+namest+"/"+namest+"_30mslp_cr.tif"
+dist_to_outlet_raster="/home/west/Projects/IUH_TWI/HAND_30m/"+namest+"/"+namest+"_30mdsave_noweight_cr.tif"
+outputfolder_twi="/home/west/Projects/hydrofabrics/20210511/TWI_30m/"
 
-    
+nodata_value = -999
+buffer_distance = 0.001
+output_flag = 1
+global_src_extent = 0
+
+generate_twi_per_basin(namest,catchments, twi_raster, slope_raster, dist_to_outlet_raster, outputfolder_twi,
+                    nodata_value = nodata_value,global_src_extent = 0,buffer_distance = 0.001,output_flag = 1)
+
+   

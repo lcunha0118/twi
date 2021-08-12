@@ -22,6 +22,7 @@
 
 source ./workflow_hand_twi_giuh.env
 
+
 mkdir ${dem_dir}
 mkdir ${out_dir_taudem}
 mkdir ${out_dir_twi}
@@ -55,7 +56,7 @@ for val in  ${HUC[@]}; do
 	if test -f ${hucid}-wbd.shp; then
 		echo "${hucid}-wbd.shp exists"
 	else
-	  echo "Downloading file ${hucid}-wbd.shp"
+        	echo "Downloading file ${hucid}-wbd.shp"
 	  	curl http://web.corral.tacc.utexas.edu/nfiedata/HAND/${hucid}/${hucid}-wbd.dbf -o ${hucid}-wbd.dbf
 		curl http://web.corral.tacc.utexas.edu/nfiedata/HAND/${hucid}/${hucid}-wbd.prj -o ${hucid}-wbd.prj
 	  	curl http://web.corral.tacc.utexas.edu/nfiedata/HAND/${hucid}/${hucid}-wbd.shx -o ${hucid}-wbd.shx
@@ -65,6 +66,7 @@ for val in  ${HUC[@]}; do
 	#echo "It took $(($END_TIME6-$END_TIME5)) seconds to dowload the data/n"  
 		
 	if [[ "$Resolution" -eq 30 ]];then
+		
 		#If resolution equal to 30, aggregate DEM and run pitremove and dinfflowdir
 		file_name=${hucid}_30m	
 		#-----------------------------------------------
@@ -75,14 +77,15 @@ for val in  ${HUC[@]}; do
 			echo "Resampled DEM to 30 x 30 meters"
 			gdalwarp -tr 0.0003086429087 0.0003086429087 -r average ${dem_dir}/${hucid}fel.tif ${file_name}.tif
 		fi
-		
+		FelPath=${out_dir_taudem}/${hucid}/${file_name}fel.tif
+
 		#-----------------------------------------------
 		# pitremove  
 		echo "Process DEM"
 		if test -f ${file_name}fel.tif; then
 			echo "${file_name}fel.tif exists"
 		else
-			mpiexec -np $nproc pitremove -z ${file_name}.tif -fel ${file_name}fel.tif
+			mpiexec -np $nproc pitremove -z ${file_name}.tif -fel ${FelPath}
 		fi 	
 		
 		#-----------------------------------------------
@@ -90,11 +93,14 @@ for val in  ${HUC[@]}; do
 		if test -f ${file_name}ang.tif; then
 			echo "${file_name}p.tif exists\n"
 		else
-			mpiexec -np $nproc dinfflowdir -ang ${file_name}ang.tif -slp ${file_name}slp.tif -fel ${file_name}fel.tif
-		fi			
+			mpiexec -np $nproc dinfflowdir -ang ${file_name}ang.tif -slp ${file_name}slp.tif -fel ${FelPath}
+		fi
+					
 	else
+	
 		#If resolution equal to 10, download the info from the website 
 		file_name=${hucid}
+		FelPath=${dem_dir}/${file_name}fel.tif
 		#-----------------------------------------------
 		# Download other available datasets
 		if test -f ${file_name}slp.tif; then
@@ -157,61 +163,89 @@ for val in  ${HUC[@]}; do
 			ogr2ogr -f "GeoJSON" ${hydrofabrics_directory}catchments_wgs84.geojson ${hydrofabrics_directory}catchments.geojson  -s_srs EPSG:5070 -t_srs EPSG:4326
 			ogr2ogr -f "GeoJSON" ${hydrofabrics_directory}flowpaths_wgs84.geojson ${hydrofabrics_directory}flowpaths.geojson -s_srs EPSG:5070 -t_srs EPSG:4326
 		fi
-		echo "Generating histogram"						
-		conda activate $python_env
-		#generate TWI per basin
-		python ~/git_repositories/twi/workflow/generate_twi_per_basin.py ${hucid} ${hydrofabrics_directory}catchments_wgs84.geojson ${file_name}twi_cr.tif ${file_name}slp_cr.tif $out_dir_twi --output 1 --buffer 0.001 --nodata -999
-	
 
 	fi
 	
-	if [[ $Variable == *"GIUH"* ]]; then
-		#-----------------------------------------------
-		# Extract the river network
-		# TODO: This can be improved with the DropAnalysis method, but it requires the Outlet of the basin
 
-		if test -f ${file_name}sa.tif; then
-			echo "${file_name}sa.tif exists"
-		else
-			mpiexec -np $nproc slopearea ${file_name}.tif
-		fi
-		if test -f ${file_name}ad8.tif; then
-			echo "${file_name}ad8.tif exists"
-		else
-			mpiexec -np $nproc aread8 ${file_name}.tif
-		fi
-		if test -f ${file_name}ssa.tif; then
-			echo "${file_name}ssa.tif exists"
-		else		
-			mpiexec -np $nproc d8flowpathextremeup ${file_name}.tif
-		fi
-		# This will be eventually provided by the hydrofabrics, so I am not worrying about this for now		
-		if test -f ${file_name}fake_src.tif; then
-			echo "${file_name}fake_src.tif exists"
-		else	
-			mpiexec -np $nproc threshold -ssa ${file_name}ssa.tif -src ${file_name}fake_src.tif -thresh 3000
-		fi
-			# This will latter be modified when the hydrofabrics include the outlet of HUC06 basins. DropAnalysis will be used to define the best threshold for different areas in USA
-
-		if test -f ${file_name}src.tif; then
-			echo "${file_name}src.tif exists"
-		else
-			mpiexec -np $nproc threshold -ssa ${file_name}ssa.tif -src ${file_name}src.tif -thresh 300
-		fi
+	#-----------------------------------------------
+	# Extract the river network
+	# TODO: This can be improved with the DropAnalysis method, but it requires the Outlet of the basin
 		
+	if test -f ${file_name}sa.tif; then
+		echo "${file_name}sa.tif exists"
+	else
+		mpiexec -np $nproc slopearea ${file_name}.tif
+	fi
+	if test -f ${file_name}p.tif; then
+		echo "${file_name}p.tif exists"
+	else
+		mpiexec -np $nproc d8flowdir ${file_name}.tif
+	fi
+	if test -f ${file_name}ad8.tif; then
+		echo "${file_name}ad8.tif exists"
+	else
+		mpiexec -np $nproc aread8 ${file_name}.tif
+	fi
+	if test -f ${file_name}ssa.tif; then
+		echo "${file_name}ssa.tif exists"
+	else		
+		mpiexec -np $nproc d8flowpathextremeup ${file_name}.tif
+	fi
+	# This will be eventually provided by the hydrofabrics, so I am not worrying about this for now		
+	if test -f ${file_name}fake_src.tif; then
+		echo "${file_name}fake_src.tif exists"
+	else	
+		mpiexec -np $nproc threshold -ssa ${file_name}ssa.tif -src ${file_name}fake_src.tif -thresh 3000
+	fi
+	# This will latter be modified when the hydrofabrics include the outlet of HUC06 basins. DropAnalysis will be used to define the best threshold for different areas in USA
+
+	if test -f ${file_name}src.tif; then
+		echo "${file_name}src.tif exists"
+	else
+		mpiexec -np $nproc threshold -ssa ${file_name}ssa.tif -src ${file_name}src.tif -thresh 300
+	fi
+
+
+	if [[ $Variable == *"GIUH"* ]]; then
+	
 		#Generate travel time in minutes/meter per pixel	
 		python ~/git_repositories/twi/workflow/generate_travel_time_by_pixel.py ${file_name} ${out_dir_taudem}/${hucid}/ ${hydrofabrics_directory}  --method=${method} --manning=${manning}
-		
-		#Generate travel time in minutes accumulated overe the network
-		mpiexec -np $nproc dinfdistdown -ang ${file_name}ang.tif -fel ${file_name}fel.tif -src ${file_name}fake_src.tif -wg ${file_name}wg${method}.tif -dd ${file_name}dhave${method}.tif
-		#crop the raster to HUC06
-		gdalwarp -cutline --config GDALWARP_IGNORE_BAD_CUTLINE YES ${hucid}-wbd.shp -dstalpha ${file_name}dhave${method}.tif -dstnodata "-999.0" ${file_name}dhave${method}_cr.tif	
+	
+		#Generate travel time in minutes accumulated over the network
+		#7/30/2021 - Change from "-m ave h" to "-m ave s" - calculate distance based on the The along the surface difference in elevation between grid cells (s=h*sqrt(1+slope2)
+		if test -f ${file_name}dsave${method}.tif; then
+			echo "${file_name}dsave${method}.tif exists"
+		else	
+			mpiexec -np $nproc dinfdistdown -ang ${file_name}ang.tif -fel ${FelPath} -src ${file_name}fake_src.tif -wg ${file_name}wg${method}.tif -dd ${file_name}dsave${method}.tif -m ave s
+
+			#crop the raster to HUC06
+			gdalwarp -cutline --config GDALWARP_IGNORE_BAD_CUTLINE YES ${hucid}-wbd.shp -dstalpha ${file_name}dsave${method}.tif -dstnodata "-999.0" ${file_name}dsave${method}_cr.tif
+		fi
+	
 		
 		#generate GIUH per basin
-		python ~/git_repositories/twi/workflow/generate_giuh_per_basin.py ${hucid} ${hydrofabrics_directory}catchments_wgs84.geojson ${out_dir_taudem}/${hucid}/${file_name}dhave${method}_cr.tif $out_dir_giuh --output 1 --buffer 0.001 --nodata -999
+		python ~/git_repositories/twi/workflow/generate_giuh_per_basin.py ${hucid} ${hydrofabrics_directory}catchments_wgs84.geojson ${out_dir_taudem}/${hucid}/${file_name}dsave${method}_cr.tif $out_dir_giuh --output 1 --buffer 0.001 --nodata -999
 
 
 	fi
+
+	if [[ $Variable == *"TWI"* ]]; then
+
+		if test -f ${file_name}dsave_noweight.tif; then
+			echo "${file_name}dsave_noweight.tif exists"
+		else
+		#7/30/2021 - Calculate the distance downstream - used to generate the width function for topmodel
+			mpiexec -np $nproc dinfdistdown -ang ${file_name}ang.tif -fel ${FelPath} -src ${file_name}fake_src.tif -dd ${file_name}dsave_noweight.tif -m ave s
+
+			gdalwarp -cutline --config GDALWARP_IGNORE_BAD_CUTLINE YES ${hucid}-wbd.shp -dstalpha ${file_name}dsave_noweight.tif -dstnodata "-999.0" ${file_name}dsave_noweight_cr.tif	
+		fi	
+
+		echo "Generating histogram"						
+		#conda activate $python_env
+		#generate TWI per basin - need to modify to also generate width function
+		python ~/git_repositories/twi/workflow/generate_twi_per_basin.py ${hucid} ${hydrofabrics_directory}catchments_wgs84.geojson ${file_name}twi_cr.tif ${file_name}slp_cr.tif ${file_name}dsave_noweight.tif $out_dir_twi --output 1 --buffer 0.001 --nodata -999
+		
+	fi	
 
 	END_TIME=$(date +%s)
 	echo "running ${hucid}, for ${Variable}, at ${Resolution} m resolution"
