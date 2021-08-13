@@ -212,7 +212,13 @@ def generate_giuh_per_basin(namestr,catchments, time_to_stream_raster, outputfol
                 
                 sorted_array = np.sort(maskedArray2)    
                   
-
+                if(len(np.unique(sorted_array))>5): 
+                    Per5=np.percentile(sorted_array,5)
+                    Per95=np.percentile(sorted_array,95)
+                    sorted_array=sorted_array[(sorted_array>=Per5) & (sorted_array<=Per95)]
+                    sorted_array=(sorted_array-min(sorted_array))
+                else:
+                    sorted_array=np.zeros(20)+3600.
                 Per5=np.percentile(sorted_array,5)
                 Per95=np.percentile(sorted_array,95)
                 if(len(np.unique(sorted_array))>10): sorted_array=sorted_array[(sorted_array>=Per5) & (sorted_array<=Per95)]

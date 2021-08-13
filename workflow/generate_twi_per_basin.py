@@ -296,12 +296,13 @@ def generate_twi_per_basin(namestr,catchments, twi_raster,slope_raster, dist_to_
                 maskedArray2=maskedArray[(maskedArray!=nodata_value) & (~np.isnan(maskedArray)) & (maskedArray>0)]
     
                 sorted_array = np.sort(maskedArray2)                 
-
-                Per5=np.percentile(sorted_array,5)
-                Per95=np.percentile(sorted_array,95)
-                if(len(np.unique(sorted_array))>10): sorted_array=sorted_array[(sorted_array>=Per5) & (sorted_array<=Per95)]
-                sorted_array=(sorted_array-min(sorted_array))
-                
+                if(len(np.unique(sorted_array))>5): 
+                    Per5=np.percentile(sorted_array,5)
+                    Per95=np.percentile(sorted_array,95)
+                    sorted_array=sorted_array[(sorted_array>=Per5) & (sorted_array<=Per95)]
+                    sorted_array=(sorted_array-min(sorted_array))
+                else:
+                    sorted_array=np.zeros(20)+500.
                 # These values are hardcoded now due to the problem of catchment boundary created by using 
                 # different DEMS to generate the hydrofabrics, and in this analysis
                 # also, the hydrofabric polygones are modify which can also create a problem
@@ -330,7 +331,7 @@ def generate_twi_per_basin(namestr,catchments, twi_raster,slope_raster, dist_to_
                 #if not os.path.exists(DirCat): os.mkdir(DirCat)
                     DatFile=os.path.join(outputfolder_twi_config_file,"cat-"+str(cat)+".dat")
                     f= open(DatFile, "w")
-                    f.write("1  1  0\n")
+                    f.write("1  1  1\n")
                     f.write("%s" %("Extracted study basin: " + str(cat) +"\n"))
                     f.write("%s" %(str(nclasses)+" 1\n"))
                     for icdf in range(0,len(CDF)):
@@ -409,7 +410,7 @@ if __name__ == "__main__":
                     )
 
 #Test
-namest='010700'
+namest='010802'
 catchments='/home/west/Projects/hydrofabrics/20210511/catchments_wgs84.geojson'
 twi_raster="/home/west/Projects/IUH_TWI/HAND_30m/"+namest+"/"+namest+"_30mtwi_cr.tif"
 slope_raster="/home/west/Projects/IUH_TWI/HAND_30m/"+namest+"/"+namest+"_30mslp_cr.tif"
