@@ -106,7 +106,7 @@ def generate_twi_per_basin(namestr,catchments, twi_raster,slope_raster, dist_to_
         vlyr_extent = [a + b for a, b in zip(vlyr_extent, expand_by)]
 
 
-    print ("Test 1")   
+ 
     # create an in-memory numpy array of the source raster data
     # covering the whole extent of the vector layer
     if global_src_extent:
@@ -213,6 +213,15 @@ def generate_twi_per_basin(namestr,catchments, twi_raster,slope_raster, dist_to_
             # Mask the source data array with our current feature
             # we take the logical_not to flip 0<->1 to get the correct mask effect
             # we also mask out nodata values explictly
+            
+            # Mask basin area
+            masked_basin = np.ma.MaskedArray(
+                src_array,
+                mask=np.logical_not(rv_array) 
+                )
+            all_values_in_basin=((masked_basin.mask==False)).sum() # False where the basin is, not sure why. So counting pixels in the basin
+                
+            # Also remove missing data - keep only valid values
             masked = np.ma.MaskedArray(
                 src_array,
                 mask=np.logical_or(
@@ -220,30 +229,32 @@ def generate_twi_per_basin(namestr,catchments, twi_raster,slope_raster, dist_to_
                     np.logical_not(rv_array) # remove this since it was creating issues with 1
                 )
             )
-            #N_elem_valid=(masked>0).sum()
-            #Porc_valid=100*N_elem_valid/N_elem_polygon
-            #print (" Col " + str(len(src_array)) + " row " +str(len(src_array[0])) + " row " + str(len(src_array[0])))
-            all_values1=len(src_array)*len(src_array[0])
-            if(cat==Test): ("col " + str(len(masked))  + " row " + str(len(masked[0])))
-            
-             
-            maskedArray=np.ma.filled(masked.astype(float), np.nan).flatten()
+            all_valid_values_in_basin=((masked.mask==False)).sum()
+            Check=100*all_valid_values_in_basin/all_values_in_basin # Porcentage of valid numbers in the polygone
+            if(Check>80):             
+               
+                maskedArray=np.ma.filled(masked.astype(float), np.nan).flatten()
+                
+                #N_elem_valid=(masked>0).sum()
+                #Porc_valid=100*N_elem_valid/N_elem_polygon
+                #print (" Col " + str(len(src_array)) + " row " +str(len(src_array[0])) + " row " + str(len(src_array[0])))
+                #all_values1=len(src_array)*len(src_array[0])
+                if(cat==Test): ("col " + str(len(masked))  + " row " + str(len(masked[0])))
+                if(cat==Test): 
+                    print ("maskedArray " + str(len(maskedArray)))
     
-            if(cat==Test): 
-                print ("maskedArray " + str(len(maskedArray)))
-            all_values=len(maskedArray)
-            if(cat==Test): print (" all_values1 " + str(all_values1) + " all_values " +str(all_values))
-            maskedArray2=maskedArray[(maskedArray!=nodata_value) & (~np.isnan(maskedArray)) & (maskedArray>0)]
-            if(cat==Test): 
-                print ("maskedArray2 " + str(len(maskedArray2)))
-                print (str(maskedArray))
-                print (str(maskedArray2))
-            sorted_array = np.sort(maskedArray2)
-            filtered_values=len(sorted_array)
-            Check=100*filtered_values/all_values # Porcentage of valid numbers in the polygone
-                            
-            if(Check>80): 
-                    
+                if(cat==Test): 
+                    print (" all_values1 " + str(all_values1) + " all_values " +str(all_values))
+                maskedArray2=maskedArray[(maskedArray!=nodata_value) & (~np.isnan(maskedArray)) & (maskedArray>0)]
+                if(cat==Test): 
+                    print ("maskedArray2 " + str(len(maskedArray2)))
+                    print (str(maskedArray))
+                    print (str(maskedArray2))
+                sorted_array = np.sort(maskedArray2)
+                all_values=((masked.mask==False) & (masked.data>0)).sum() # False where the basin is, not sure why. So counting pixels in the basin
+                filtered_values=len(sorted_array) # Valid values
+            
+                                                
                 if(cat==Test): print ("In loop to generate info" + str(cat) + " Freq "+ str(100*filtered_values/all_values) + " all values "+ str(all_values) + " filtered_values " + str(filtered_values))
                 #print ("In loop to generate info" + str(cat) + " Freq "+ str(100*filtered_values/all_values) + " all values "+ str(all_values) + " filtered_values " + str(filtered_values))
                 LessThan50=sorted_array[sorted_array<50]
@@ -294,13 +305,17 @@ def generate_twi_per_basin(namestr,catchments, twi_raster,slope_raster, dist_to_
                 # These values are hardcoded now due to the problem of catchment boundary created by using 
                 # different DEMS to generate the hydrofabrics, and in this analysis
                 # also, the hydrofabric polygones are modify which can also create a problem
-                max_class=min(2000,max(sorted_array))
+                max_class=min(2001,max(sorted_array))
                 bins=np.arange(0,max_class,500)
-                
                 nclasses_width_function=len(bins)
+                if(len(bins)<5): 
+                    bins=5    
+                    nclasses_width_function=5
+                
                 dist_to_outlet = pd.DataFrame(columns=['dist_to_outlet'], data=sorted_array)
+                
                 hist=np.histogram(dist_to_outlet['dist_to_outlet'].values, bins=bins)
-        
+
                 CDF_D2O=pd.DataFrame({'Nelem':hist[0].T, 'dist_to_outlet':hist[1][1:].T}).sort_values(by=['dist_to_outlet'], ascending=True)
                 CDF_D2O['Freq']=CDF_D2O['Nelem']/sum(CDF_D2O['Nelem'])
                 CDF_D2O['AccumFreq']=CDF_D2O['Freq'].cumsum()
@@ -394,7 +409,7 @@ if __name__ == "__main__":
                     )
 
 #Test
-namest='010802'
+namest='010700'
 catchments='/home/west/Projects/hydrofabrics/20210511/catchments_wgs84.geojson'
 twi_raster="/home/west/Projects/IUH_TWI/HAND_30m/"+namest+"/"+namest+"_30mtwi_cr.tif"
 slope_raster="/home/west/Projects/IUH_TWI/HAND_30m/"+namest+"/"+namest+"_30mslp_cr.tif"

@@ -184,29 +184,34 @@ def generate_giuh_per_basin(namestr,catchments, time_to_stream_raster, outputfol
             gdal.RasterizeLayer(rvds, [1], mem_layer, burn_values=[1])
             rv_array = rvds.ReadAsArray()
 
-            # Mask the source data array with our current feature
-            # we take the logical_not to flip 0<->1 to get the correct mask effect
-            # we also mask out nodata values explictly
+            # Mask basin area
+            masked_basin = np.ma.MaskedArray(
+                src_array,
+                mask=np.logical_not(rv_array) 
+                )
+            all_values_in_basin=((masked_basin.mask==False)).sum() # False where the basin is, not sure why. So counting pixels in the basin
+                
+            # Also remove missing data - keep only valid values
             masked = np.ma.MaskedArray(
                 src_array,
                 mask=np.logical_or(
                     src_array == nodata_value,
-                    np.logical_not(rv_array)
+                    np.logical_not(rv_array) # remove this since it was creating issues with 1
                 )
             )
-
-            #Create a 1-d array - include nan for points outside of the polygone
-            maskedArray=np.ma.filled(masked.astype(float), np.nan).flatten()
-            all_values=len(maskedArray)
-            
-            #remove all values outside of the polygone which are marked as nan
-            maskedArray2=maskedArray[(maskedArray!=nodata_value) & (~np.isnan(maskedArray)) & (maskedArray>=0)] # Values covered by the polygon
-            # Due to incompatibilities with hydrofabrics
-            
-            sorted_array = np.sort(maskedArray2)    
-            filtered_values=len(sorted_array)
-            Check=100*filtered_values/all_values
-            if(Check>5):    
+            all_valid_values_in_basin=((masked.mask==False)).sum()
+            Check=100*all_valid_values_in_basin/all_values_in_basin # Porcentage of valid numbers in the polygone
+            if(Check>80):   
+       
+                #Create a 1-d array - include nan for points outside of the polygone
+                maskedArray=np.ma.filled(masked.astype(float), np.nan).flatten()
+                
+                #remove all values outside of the polygone which are marked as nan
+                maskedArray2=maskedArray[(maskedArray!=nodata_value) & (~np.isnan(maskedArray)) & (maskedArray>=0)] # Values covered by the polygon
+                # Due to incompatibilities with hydrofabrics
+                
+                sorted_array = np.sort(maskedArray2)    
+                  
 
                 Per5=np.percentile(sorted_array,5)
                 Per95=np.percentile(sorted_array,95)

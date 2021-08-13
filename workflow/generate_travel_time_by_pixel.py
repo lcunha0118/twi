@@ -114,7 +114,8 @@ def SDTTVelocityMS(namestr,taudem_folder,hydrofabrics_folder,rain_intensity_mm_h
     geotransform = rds.GetGeoTransform()
     ProjSys=rds.GetProjection()
     ad8_array = rb.ReadAsArray()
-    
+    ad8_array[ad8_array<0]=0
+
     manning_file=taudem_folder+namestr+"man.tif"
     rds = gdal.Open(manning_file, GA_ReadOnly)
     assert rds, "Could not open " + manning_file
@@ -130,7 +131,7 @@ def SDTTVelocityMS(namestr,taudem_folder,hydrofabrics_folder,rain_intensity_mm_h
     rgt = rds.GetGeoTransform()
     slope_array = rb.ReadAsArray()  
     slope_array[slope_array<=0]=0.001
-    
+
     Travel_time=7.0*np.power((manning_array*1.0)/(np.power(slope_array,0.5)),0.6)*m.pow(rain_intensity_mm_h,-0.4)* (np.power((ad8_array+1),0.6)-np.power(ad8_array,0.6))
     
     wg_file=taudem_folder+namestr+"wg2.tif"
@@ -152,6 +153,8 @@ def SDTTVelocityMS_channel(namestr,taudem_folder,hydrofabrics_folder,rain_intens
     geotransform = rds.GetGeoTransform()
     ProjSys=rds.GetProjection()
     ad8_array = rb.ReadAsArray()
+    ad8_array=ad8_array+1
+    ad8_array[ad8_array<0]=0
     
     manning_file=taudem_folder+namestr+"man.tif"
     rds = gdal.Open(manning_file, GA_ReadOnly)
@@ -168,9 +171,8 @@ def SDTTVelocityMS_channel(namestr,taudem_folder,hydrofabrics_folder,rain_intens
     rgt = rds.GetGeoTransform()
     slope_array = rb.ReadAsArray()  
     slope_array[slope_array<=0]=0.001
-    
-    Travel_river=1.0/(channel*60)
-    Travel_hillslope=7.0*np.power((manning_array*1.0)/(np.power(slope_array,0.5)),0.6)*m.pow(RainIntensity,-0.4)* (np.power((ad8_array+1),0.6)-np.power(ad8_array,0.6))     
+
+    Travel_hillslope=7.0*np.power((manning_array*1.0)/(np.power(slope_array,0.5)),0.6)*m.pow(rain_intensity_mm_h,-0.4)* (np.power((ad8_array+1),0.6)-np.power(ad8_array,0.6))     
     Travel_time=np.where(grid.riv==1, Travel_river, Travel_hillslope)
     
     wg_file=taudem_folder+namestr+"wg3.tif"
