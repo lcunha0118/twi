@@ -213,7 +213,7 @@ def generate_giuh_per_basin(namestr,catchments, time_to_stream_raster, outputfol
                 sorted_array = np.sort(maskedArray2)    
                   
                 if(len(np.unique(sorted_array))>5): 
-                    Per5=np.percentile(sorted_array,5)
+                    Per5=np.percentile(sorted_array,10)
                     Per95=np.percentile(sorted_array,95)
                     sorted_array=sorted_array[(sorted_array>=Per5) & (sorted_array<=Per95)]
                     sorted_array=(sorted_array-min(sorted_array))
@@ -235,9 +235,11 @@ def generate_giuh_per_basin(namestr,catchments, time_to_stream_raster, outputfol
                 CDF['Freq']=CDF['Nelem']/sum(CDF['Nelem'])
                 CDF['AccumFreq']=CDF['Freq'].cumsum()            
                 DatFile=os.path.join(outputfolder_giuh_param_file,"cat-"+str(cat)+"_giuh.csv")
+                DatFile=DatFile.replace("cat-cat-","cat-")
                 CDF.to_csv(DatFile)             
                 if(output_flag==1):
                     DatFile=os.path.join(outputfolder_giuh_config_file,"cat-"+str(cat)+"_bmi_config_cfe_pass.txt")
+                    DatFile=DatFile.replace("cat-cat-","cat-")
                     f= open(DatFile, "w")
                     string="forcing_file=BMI\nsoil_params.depth=2.0\nsoil_params.b=4.05\nsoil_params.mult=1000.0\nsoil_params.satdk=0.00000338\nsoil_params.satpsi=0.355\nsoil_params.slop=1.0\nsoil_params.smcmax=0.439\nsoil_params.wltsmc=0.066\nmax_gw_storage=16.0\nCgw=0.01\nexpon=6.0\ngw_storage=50%\nalpha_fc=0.33\nsoil_storage=66.7%\nK_nash=0.03\nK_lf=0.01\nnash_storage=0.0,0.0\n"
                     f.write("%s" %(string))

@@ -297,7 +297,7 @@ def generate_twi_per_basin(namestr,catchments, twi_raster,slope_raster, dist_to_
     
                 sorted_array = np.sort(maskedArray2)                 
                 if(len(np.unique(sorted_array))>5): 
-                    Per5=np.percentile(sorted_array,5)
+                    Per5=np.percentile(sorted_array,10)
                     Per95=np.percentile(sorted_array,95)
                     sorted_array=sorted_array[(sorted_array>=Per5) & (sorted_array<=Per95)]
                     sorted_array=(sorted_array-min(sorted_array))
@@ -306,7 +306,7 @@ def generate_twi_per_basin(namestr,catchments, twi_raster,slope_raster, dist_to_
                 # These values are hardcoded now due to the problem of catchment boundary created by using 
                 # different DEMS to generate the hydrofabrics, and in this analysis
                 # also, the hydrofabric polygones are modify which can also create a problem
-                max_class=min(2001,max(sorted_array))
+                max_class=min(2501,max(sorted_array))
                 bins=np.arange(0,max_class,500)
                 nclasses_width_function=len(bins)
                 if(len(bins)<5): 
@@ -324,12 +324,14 @@ def generate_twi_per_basin(namestr,catchments, twi_raster,slope_raster, dist_to_
                 #CDF.to_csv(os.path.join(outputfolder_twi, "CDF_" + str(cat) + '.csv'), index=False)
                 #CDFplot = CDF.plot(kind='scatter',x='TWI',y='AccumFreq',color='blue').get_figure()
                 DatFile=os.path.join(outputfolder_twi_param_file,"cat-"+str(cat)+"_d2o.csv")
+                DatFile=DatFile.replace("cat-cat-","cat-")
                 CDF_D2O.to_csv(DatFile)                  
                 
                 if(output_flag==1):
                 #DirCat=os.path.join(outputfolder_twi, str(cat))
                 #if not os.path.exists(DirCat): os.mkdir(DirCat)
                     DatFile=os.path.join(outputfolder_twi_config_file,"cat-"+str(cat)+".dat")
+                    DatFile=DatFile.replace("cat-cat-","cat-")
                     f= open(DatFile, "w")
                     f.write("1  1  1\n")
                     f.write("%s" %("Extracted study basin: " + str(cat) +"\n"))
@@ -338,8 +340,8 @@ def generate_twi_per_basin(namestr,catchments, twi_raster,slope_raster, dist_to_
                         strdata="{0:.6f}".format((round(CDF['Freq'].iloc[icdf],6))) + " " + "{0:.6f}".format((round(CDF['TWI'].iloc[icdf],6))) +"\n"
                         f.write("%s" %(strdata))
                     f.write(str(nclasses_width_function)+"\n") 
-                    strdata="0.0 " + "{0:.6f}".format((round(CDF_D2O['dist_to_outlet'].iloc[0],6))) +" "
-                    for icdf in range(1,len(CDF_D2O)):
+                    strdata="0.0 0.1 "
+                    for icdf in range(0,len(CDF_D2O)):
                         strdata=strdata+"{0:.6f}".format((round(CDF_D2O['AccumFreq'].iloc[icdf],6))) + " " + "{0:.6f}".format((round(CDF_D2O['dist_to_outlet'].iloc[icdf],6))) +" "
                     strdata=strdata+"\n"
                     f.write("%s" %(strdata))
@@ -409,13 +411,14 @@ if __name__ == "__main__":
                     output_flag = args.output,                    
                     )
 
+
 #Test
-namest='010802'
-catchments='/home/west/Projects/hydrofabrics/20210511/catchments_wgs84.geojson'
-twi_raster="/home/west/Projects/IUH_TWI/HAND_30m/"+namest+"/"+namest+"_30mtwi_cr.tif"
-slope_raster="/home/west/Projects/IUH_TWI/HAND_30m/"+namest+"/"+namest+"_30mslp_cr.tif"
-dist_to_outlet_raster="/home/west/Projects/IUH_TWI/HAND_30m/"+namest+"/"+namest+"_30mdsave_noweight_cr.tif"
-outputfolder_twi="/home/west/Projects/hydrofabrics/20210511/TWI_30m/"
+namest='010100'
+catchments='/home/west/git_repositories/topmodel_fork_NOAA/topmodel/params/data/hydrofabrics/20210511/catchments_wgs84.geojson'
+twi_raster="/home/west/git_repositories/topmodel_fork_NOAA/topmodel/params/data/HAND_30m/"+namest+"/"+namest+"_30mtwi_cr.tif"
+slope_raster="/home/west/git_repositories/topmodel_fork_NOAA/topmodel/params/data/HAND_30m/"+namest+"/"+namest+"_30mslp_cr.tif"
+dist_to_outlet_raster="/home/west/git_repositories/topmodel_fork_NOAA/topmodel/params/data/HAND_30m/"+namest+"/"+namest+"_30mdsave_noweight_cr.tif"
+outputfolder_twi="/home/west/git_repositories/topmodel_fork_NOAA/topmodel/params/data/"
 
 nodata_value = -999
 buffer_distance = 0.001

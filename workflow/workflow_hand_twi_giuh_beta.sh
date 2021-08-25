@@ -29,15 +29,8 @@ mkdir ${out_dir_twi}
 mkdir ${out_dir_giuh}
 
 for val in  ${HUC[@]}; do
-	hucid=$val
-	if [[ "$Resolution" -eq 30 ]];then
-		file_name=${hucid}_30m	
-	else
-		file_name=${hucid}
-	fi	
-	
-	echo $file_name
 	START_TIME=$(date +%s)
+	hucid=$val
 	echo "running ${hucid}, for ${Variable}, at ${Resolution} m resolution"
 	#-----------------------------------------------
 	# Download HAND DEM
@@ -49,12 +42,9 @@ for val in  ${HUC[@]}; do
 	if test -f ${hucid}fel.tif; then
 		echo "${hucid}fel.tif exists"
 	else
-		if test -f ${out_dir_taudem}/${hucid}/${file_name}fel.tif; then
-			echo  ${out_dir_taudem}/${hucid}/${file_name}fel.tif
-		else
-	 		echo "Downloading file ${hucid}fel.tif"
-			curl http://web.corral.tacc.utexas.edu/nfiedata/HAND/${hucid}/${hucid}fel.tif -o ${hucid}fel.tif
- 		fi
+	 	echo "Downloading file ${hucid}fel.tif"
+		curl http://web.corral.tacc.utexas.edu/nfiedata/HAND/${hucid}/${hucid}fel.tif -o ${hucid}fel.tif
+ 	
 	fi
 #	END_TIME=$(date +%s)  
 	
@@ -78,6 +68,7 @@ for val in  ${HUC[@]}; do
 	if [[ "$Resolution" -eq 30 ]];then
 		
 		#If resolution equal to 30, aggregate DEM and run pitremove and dinfflowdir
+		file_name=${hucid}_30m	
 		#-----------------------------------------------
 		# Resample DEM to 30 x 30 meters
 		if test -f ${file_name}.tif; then
@@ -108,6 +99,7 @@ for val in  ${HUC[@]}; do
 	else
 	
 		#If resolution equal to 10, download the info from the website 
+		file_name=${hucid}
 		FelPath=${dem_dir}/${file_name}fel.tif
 		#-----------------------------------------------
 		# Download other available datasets
@@ -161,17 +153,20 @@ for val in  ${HUC[@]}; do
 		else
 			gdalwarp -cutline --config GDALWARP_IGNORE_BAD_CUTLINE YES ${hucid}-wbd.shp -dstalpha ${file_name}twi.tif -dstnodata "-999.0" ${file_name}twi_cr.tif
 			gdalwarp -cutline --config GDALWARP_IGNORE_BAD_CUTLINE YES ${hucid}-wbd.shp -dstalpha ${file_name}slp.tif -dstnodata "-999.0" ${file_name}slp_cr.tif
+			
 		fi
 
 
-		if test -f ${file_name}hf.tif; then
+		if test -f ${hydrofabrics_directory}hydrofabric_wgs84.gpkg; then
 			echo "catchments_wgs84.geojson exists"
 		else
 		 	echo "Reproject hydrofabrics file catchments_wgs84.geojson"
-			ogr2ogr -f "GeoJSON" ${hydrofabrics_directory}catchments_wgs84.geojson ${hydrofabrics_directory}catchments.geojson  -s_srs EPSG:5070 -t_srs EPSG:4326
-			ogr2ogr -f "GeoJSON" ${hydrofabrics_directory}flowpaths_wgs84.geojson ${hydrofabrics_directory}flowpaths.geojson -s_srs EPSG:5070 -t_srs EPSG:4326
+		 	#Changed 4326 to 4269
+			ogr2ogr -f GPKG ${hydrofabrics_directory}hydrofabric_wgs84.gpkg ${hydrofabrics_directory}hydrofabric.gpkg -s_srs EPSG:5070 -t_srs EPSG:4269
+			# Create an empty raster to store the hydrofabric network
 			gdal_translate -scale 0 40000000000000 0 0 ${file_name}fel.tif ${file_name}hf.tif
-			gdal_rasterize -b 1 -burn 1 ${hydrofabrics_directory}flowpaths_wgs84.geojson ${file_name}hf.tif			
+			gdal_rasterize -b 1 -burn 1  ${hydrofabrics_directory}flowpaths.shp ${file_name}hf.tif
+			
 		fi
 
 	fi
@@ -201,12 +196,11 @@ for val in  ${HUC[@]}; do
 	else		
 		mpiexec -np $nproc d8flowpathextremeup ${file_name}.tif
 	fi
-	# This will eventually provided by the hydrofabrics, so I am not worrying about this for now		
+	# This will be eventually provided by the hydrofabrics, so I am not worrying about this for now		
 	if test -f ${file_name}fake_src.tif; then
 		echo "${file_name}fake_src.tif exists"
 	else	
 		mpiexec -np $nproc threshold -ssa ${file_name}ssa.tif -src ${file_name}fake_src.tif -thresh 3000
-		
 	fi
 	# This will latter be modified when the hydrofabrics include the outlet of HUC06 basins. DropAnalysis will be used to define the best threshold for different areas in USA
 
@@ -227,7 +221,7 @@ for val in  ${HUC[@]}; do
 		if test -f ${file_name}dsave${method}.tif; then
 			echo "${file_name}dsave${method}.tif exists"
 		else	
-			mpiexec -np $nproc dinfdistdown -ang ${file_name}ang.tif -fel ${FelPath} -src ${file_name}hf.tif -wg ${file_name}wg${method}.tif -dd ${file_name}dsave${method}.tif -m ave s
+			mpiexec -np $nproc dinfdistdown -ang ${file_name}ang.tif -fel ${FelPath} -src ${file_name}fake_src.tif -wg ${file_name}wg${method}.tif -dd ${file_name}dsave${method}.tif -m ave s
 
 			#crop the raster to HUC06
 			gdalwarp -cutline --config GDALWARP_IGNORE_BAD_CUTLINE YES ${hucid}-wbd.shp -dstalpha ${file_name}dsave${method}.tif -dstnodata "-999.0" ${file_name}dsave${method}_cr.tif
@@ -246,7 +240,7 @@ for val in  ${HUC[@]}; do
 			echo "${file_name}dsave_noweight.tif exists"
 		else
 		#7/30/2021 - Calculate the distance downstream - used to generate the width function for topmodel
-			mpiexec -np $nproc dinfdistdown -ang ${file_name}ang.tif -fel ${FelPath} -src ${file_name}hf.ti -dd ${file_name}dsave_noweight.tif -m ave s
+			mpiexec -np $nproc dinfdistdown -ang ${file_name}ang.tif -fel ${FelPath} -src ${file_name}fake_src.tif -dd ${file_name}dsave_noweight.tif -m ave s
 
 			gdalwarp -cutline --config GDALWARP_IGNORE_BAD_CUTLINE YES ${hucid}-wbd.shp -dstalpha ${file_name}dsave_noweight.tif -dstnodata "-999.0" ${file_name}dsave_noweight_cr.tif	
 		fi	
